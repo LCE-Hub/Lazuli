@@ -105,6 +105,7 @@ void UiDocument::collect(pugi::xml_node root) {
         TooltipDefinition entry;
         entry.icon = tooltip.attribute("icon").as_string();
         entry.label = trimmed(tooltip.text().get());
+        entry.action = trimmed(tooltip.attribute("action").as_string());
         definition.tooltips.push_back(std::move(entry));
       }
       views_.push_back(definition);

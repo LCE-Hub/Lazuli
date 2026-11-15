@@ -165,6 +165,7 @@ void UiSystem::refresh_tooltips(const Json &data) {
         TooltipHint hint;
         hint.icon = entry.value("icon", "");
         hint.label = label_for(entry.value("label", ""));
+        hint.action = entry.value("action", "");
         hints.push_back(std::move(hint));
       }
       renderer_.set_tooltips(std::move(hints));
@@ -174,7 +175,8 @@ void UiSystem::refresh_tooltips(const Json &data) {
   if (const ViewDefinition *definition = document_.find_view(current_view_)) {
     hints.reserve(definition->tooltips.size());
     for (const TooltipDefinition &tooltip : definition->tooltips) {
-      hints.push_back(TooltipHint{tooltip.icon, label_for(tooltip.label)});
+      hints.push_back(
+          TooltipHint{tooltip.icon, label_for(tooltip.label), tooltip.action});
     }
   }
   renderer_.set_tooltips(std::move(hints));
@@ -670,6 +672,20 @@ void UiSystem::handle_event(const SDL_Event &event) {
       TextInputElement *typing = active_text_input();
       if (typing != nullptr && typing->editing()) {
         release_text_edit(true);
+      }
+      if (const std::string *tooltip_action =
+              renderer_.tooltip_action_at(point);
+          tooltip_action != nullptr && !tooltip_action->empty()) {
+        if (*tooltip_action == "@back") {
+          if (sounds_.back) {
+            sounds_.back();
+          }
+          handle_back();
+        } else {
+          play_sound_for(*tooltip_action);
+          dispatch(*tooltip_action);
+        }
+        break;
       }
       if (Element *target = find_clickable(overlay_tree_.get(), point)) {
         const std::string handler = target->click_handler();

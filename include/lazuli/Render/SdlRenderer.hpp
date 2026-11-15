@@ -12,6 +12,7 @@ namespace lazuli {
 struct TooltipHint {
   std::string icon;
   std::string label;
+  std::string action;
 };
 
 class SdlRenderer : public RenderContext, public MeasureContext {
@@ -52,6 +53,7 @@ public:
   void set_tooltip_set(std::string set) { tooltip_set_ = std::move(set); }
   const std::string &tooltip_set() const { return tooltip_set_; }
   void set_status_text(std::string text) { status_text_ = std::move(text); }
+  const std::string *tooltip_action_at(const Vec2 &point) const;
 
 private:
   std::string family_for(const ComputedStyle &style) const;

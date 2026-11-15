@@ -318,6 +318,23 @@ void SdlRenderer::overlays() {
   }
 }
 
+const std::string *SdlRenderer::tooltip_action_at(const Vec2 &point) const {
+  static const std::string none;
+  ComputedStyle textStyle;
+  textStyle.fontSize = 18;
+  const float glyph = tooltip_set_ == "Xbox360" ? 34.0F : 30.0F;
+  float x = 50;
+  for (const TooltipHint &hint : tooltips_) {
+    const float width = 35.0F + text_size(hint.label, textStyle).width;
+    if (!hint.action.empty() && point.y >= 660.0F && point.y <= 715.0F &&
+        point.x >= x - 10.0F && point.x <= x + width + 10.0F) {
+      return &hint.action;
+    }
+    x += width + 24.0F;
+  }
+  return &none;
+}
+
 void SdlRenderer::end_frame() {
   overlays();
   SDL_RenderPresent(renderer_);

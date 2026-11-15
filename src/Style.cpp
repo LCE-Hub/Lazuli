@@ -1,7 +1,7 @@
 #include "lazuli/Style.hpp"
 #include <algorithm>
 #include <array>
-#include <charconv>
+#include <cstdlib>
 #include <cstring>
 #include <sstream>
 namespace lazuli {
@@ -16,6 +16,16 @@ std::string_view trim(std::string_view text) {
     text.remove_suffix(1);
   }
   return text;
+}
+
+float parse_float(std::string_view text) {
+  if (text.empty()) {
+    return 0.0F;
+  }
+  const std::string buffer(text);
+  char *end = nullptr;
+  const float value = std::strtof(buffer.c_str(), &end);
+  return end != buffer.c_str() ? value : 0.0F;
 }
 
 bool parse_hex(std::string_view text, Color &out) {
@@ -95,10 +105,7 @@ float parse_length(std::string_view text) {
   if (cleaned.ends_with("px")) {
     cleaned.resize(cleaned.size() - 2);
   }
-  float value = 0.0F;
-  const auto result =
-      std::from_chars(cleaned.data(), cleaned.data() + cleaned.size(), value);
-  return result.ec == std::errc{} ? value : 0.0F;
+  return parse_float(cleaned);
 }
 
 static void expand_sides(const std::vector<float> &sides, float &uniform,
@@ -145,10 +152,7 @@ std::optional<float> parse_percent(std::string_view text) {
   if (!text.ends_with('%'))
     return std::nullopt;
   text.remove_suffix(1);
-  float value = 0.0F;
-  const auto result =
-      std::from_chars(text.data(), text.data() + text.size(), value);
-  return result.ec == std::errc{} ? std::optional<float>(value) : std::nullopt;
+  return std::optional<float>(parse_float(text));
 }
 bool parse_align(std::string_view text, Align &out) {
   if (text == "start" || text == "left") {

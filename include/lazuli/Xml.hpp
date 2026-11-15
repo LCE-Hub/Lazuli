@@ -14,6 +14,7 @@ class DataContext;
 struct TooltipDefinition {
   std::string icon;
   std::string label;
+  std::string action;
 };
 
 struct ViewDefinition {
