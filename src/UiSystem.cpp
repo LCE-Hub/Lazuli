@@ -537,6 +537,30 @@ void UiSystem::begin_text_edit(Element *element) {
     active_text_ = element;
     text_result_ = input->text();
     text_edited_ = false;
+#if defined(__ANDROID__)
+    if (SDL_Window *window = SDL_GetRenderWindow(renderer_.handle())) {
+      const Rect &bounds = input->bounds();
+      int window_width = 0;
+      int window_height = 0;
+      SDL_GetWindowSize(window, &window_width, &window_height);
+      const float scale_x = logical_width_ > 0
+                                ? static_cast<float>(window_width) /
+                                      static_cast<float>(logical_width_)
+                                : 1.0F;
+      const float scale_y = logical_height_ > 0
+                                ? static_cast<float>(window_height) /
+                                      static_cast<float>(logical_height_)
+                                : 1.0F;
+      const SDL_Rect rect{
+          static_cast<int>(bounds.x * scale_x),
+          static_cast<int>(bounds.y * scale_y),
+          std::max(1, static_cast<int>(bounds.width * scale_x)),
+          std::max(1, static_cast<int>(bounds.height * scale_y)),
+      };
+      SDL_SetTextInputArea(window, &rect, 0);
+      SDL_StartTextInput(window);
+    }
+#endif
   }
 }
 
@@ -552,6 +576,11 @@ void UiSystem::end_text_edit(bool commit) {
     text_edited_ = false;
   }
   input->end_edit(commit);
+#if defined(__ANDROID__)
+  if (SDL_Window *window = SDL_GetRenderWindow(renderer_.handle())) {
+    SDL_StopTextInput(window);
+  }
+#endif
 }
 
 void UiSystem::release_text_edit(bool commit) {
@@ -661,6 +690,39 @@ Element *UiSystem::find_hoverable(Element *element, const Vec2 &point) const {
 
 void UiSystem::handle_event(const SDL_Event &event) {
   switch (event.type) {
+  case SDL_EVENT_FINGER_DOWN: {
+    SDL_Event converted = event;
+    SDL_ConvertEventToRenderCoordinates(renderer_.handle(), &converted);
+    const Vec2 point{converted.tfinger.x, converted.tfinger.y};
+    scroll_finger_ = event.tfinger.fingerID;
+    scroll_last_y_ = converted.tfinger.y;
+    scroll_target_ = nullptr;
+    if (overlay_tree_ != nullptr) {
+      scroll_target_ = overlay_tree_->scroll_hit_test(point);
+    }
+    if (scroll_target_ == nullptr && tree_) {
+      scroll_target_ = tree_->scroll_hit_test(point);
+    }
+    break;
+  }
+  case SDL_EVENT_FINGER_MOTION:
+    if (scroll_target_ != nullptr && event.tfinger.fingerID == scroll_finger_) {
+      SDL_Event converted = event;
+      SDL_ConvertEventToRenderCoordinates(renderer_.handle(), &converted);
+      const float drag = scroll_last_y_ - converted.tfinger.y;
+      if (drag != 0.0F) {
+        scroll_target_->on_wheel(drag / 24.0F);
+        scroll_last_y_ = converted.tfinger.y;
+      }
+    }
+    break;
+  case SDL_EVENT_FINGER_UP:
+  case SDL_EVENT_FINGER_CANCELED:
+    if (event.tfinger.fingerID == scroll_finger_) {
+      scroll_target_ = nullptr;
+      scroll_finger_ = 0;
+    }
+    break;
   case SDL_EVENT_MOUSE_BUTTON_DOWN:
     if (event.button.button == SDL_BUTTON_LEFT) {
       SDL_Event converted = event;

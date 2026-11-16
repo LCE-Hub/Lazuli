@@ -116,6 +116,9 @@ private:
   Element *find_hoverable(Element *element, const Vec2 &point) const;
   bool hover_path(Element *e, const Vec2 &p,
                   std::vector<Element *> &path) const;
+  SDL_FingerID scroll_finger_ = 0;
+  Element *scroll_target_ = nullptr;
+  float scroll_last_y_ = 0.0F;
   Panorama panorama_;
   ElementRegistry &registry_;
   SdlRenderer renderer_;
