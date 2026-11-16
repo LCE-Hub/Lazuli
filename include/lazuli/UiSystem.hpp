@@ -54,6 +54,13 @@ public:
   void set_mouse_observer(std::function<void(float, float)> observer) {
     mouse_observer_ = std::move(observer);
   }
+  void set_press_observer(std::function<void(float, float)> observer) {
+    press_observer_ = std::move(observer);
+  }
+  void set_overlay_hook(
+      std::function<void(lazuli::SdlRenderer &, double)> hook) {
+    renderer_.set_overlay_hook(std::move(hook));
+  }
   void set_quit(std::function<void()> quit) { quit_ = std::move(quit); }
   void set_status_text(std::string text) {
     renderer_.set_status_text(std::move(text));
@@ -132,6 +139,7 @@ private:
   std::function<std::string(std::string_view)> language_font_;
   std::function<std::string()> panorama_source_;
   std::function<void(float, float)> mouse_observer_;
+  std::function<void(float, float)> press_observer_;
   std::function<void()> quit_;
   std::filesystem::path ui_docs_root_;
   std::filesystem::path i18n_root_;

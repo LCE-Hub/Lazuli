@@ -4,6 +4,7 @@
 #include "lazuli/Render/TextureCache.hpp"
 #include "lazuli/RenderContext.hpp"
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 struct SDL_Renderer;
@@ -53,6 +54,10 @@ public:
   void set_tooltip_set(std::string set) { tooltip_set_ = std::move(set); }
   const std::string &tooltip_set() const { return tooltip_set_; }
   void set_status_text(std::string text) { status_text_ = std::move(text); }
+  void set_overlay_hook(
+      std::function<void(SdlRenderer &, double)> hook) {
+    overlay_hook_ = std::move(hook);
+  }
   const std::string *tooltip_action_at(const Vec2 &point) const;
 
 private:
@@ -68,6 +73,7 @@ private:
   std::vector<TooltipHint> tooltips_;
   std::string tooltip_set_ = "Durango";
   std::string status_text_;
+  std::function<void(SdlRenderer &, double)> overlay_hook_;
 };
 
 } // namespace lazuli

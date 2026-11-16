@@ -731,6 +731,9 @@ void UiSystem::handle_event(const SDL_Event &event) {
       if (mouse_observer_) {
         mouse_observer_(point.x, point.y);
       }
+      if (press_observer_) {
+        press_observer_(point.x, point.y);
+      }
       TextInputElement *typing = active_text_input();
       if (typing != nullptr && typing->editing()) {
         release_text_edit(true);

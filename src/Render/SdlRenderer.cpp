@@ -316,6 +316,9 @@ void SdlRenderer::overlays() {
     draw_text(hint.label, Rect{x + 36, 680, 400, 300}, textStyle);
     x += 35.0F + text_size(hint.label, textStyle).width + 24.0F;
   }
+  if (overlay_hook_) {
+    overlay_hook_(*this, SDL_GetTicks() / 1000.0);
+  }
 }
 
 const std::string *SdlRenderer::tooltip_action_at(const Vec2 &point) const {
