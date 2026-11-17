@@ -1,6 +1,7 @@
 #include "lazuli/Element.hpp"
 #include "lazuli/RenderContext.hpp"
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <utility>
@@ -18,9 +19,23 @@ std::size_t visible_children(const std::vector<ElementPtr> &children) {
 
 void arrange_absolute(const ElementPtr &child, const Rect &container) {
   const ComputedStyle &style = child->style();
-  child->arrange(Rect{container.x + style.left, container.y + style.top,
-                      style.width.value_or(child->measured().width),
-                      style.height.value_or(child->measured().height)});
+  float width = style.width.value_or(child->measured().width);
+  if (style.widthPercent.has_value()) {
+    width = container.width * *style.widthPercent / 100.0F;
+  }
+  float height = style.height.value_or(child->measured().height);
+  if (style.heightPercent.has_value()) {
+    height = container.height * *style.heightPercent / 100.0F;
+  }
+  float x = container.x + style.left;
+  if (style.right.has_value()) {
+    x = container.x + container.width - *style.right - width;
+  }
+  float y = container.y + style.top;
+  if (style.bottom.has_value()) {
+    y = container.y + container.height - *style.bottom - height;
+  }
+  child->arrange(Rect{x, y, width, height});
 }
 
 bool fully_inside(const Rect &bounds, const Rect &view) {
@@ -64,21 +79,110 @@ void render_visible_children(const Element *parent, RenderContext &context,
   }
 }
 
+void fill_gradient(RenderContext &context, const Rect &rect,
+                   const Gradient &gradient) {
+  if (gradient.stops.empty() || rect.width <= 0.0F || rect.height <= 0.0F) {
+    return;
+  }
+  const bool vertical = gradient.direction == Gradient::Direction::ToBottom ||
+                        gradient.direction == Gradient::Direction::ToTop;
+  const bool reversed = gradient.direction == Gradient::Direction::ToTop ||
+                        gradient.direction == Gradient::Direction::ToLeft;
+  const float length = vertical ? rect.height : rect.width;
+  const std::size_t bands = std::clamp(
+      static_cast<std::size_t>(length / 4.0F), std::size_t{1}, std::size_t{96});
+  const auto sample = [&](float t) {
+    const Gradient::Stop *first = &gradient.stops.front();
+    const Gradient::Stop *second = &gradient.stops.back();
+    for (std::size_t i = 0; i + 1 < gradient.stops.size(); ++i) {
+      if (t >= gradient.stops[i].offset &&
+          t <= gradient.stops[i + 1].offset) {
+        first = &gradient.stops[i];
+        second = &gradient.stops[i + 1];
+        break;
+      }
+      if (t < gradient.stops.front().offset) {
+        first = &gradient.stops.front();
+        second = &gradient.stops.front();
+        break;
+      }
+      if (t > gradient.stops.back().offset) {
+        first = &gradient.stops.back();
+        second = &gradient.stops.back();
+        break;
+      }
+    }
+    const float span = second->offset - first->offset;
+    const float local =
+        span > 0.0F ? std::clamp((t - first->offset) / span, 0.0F, 1.0F) : 0.0F;
+    Color color;
+    color.r = static_cast<uint8_t>(first->color.r +
+                                   (second->color.r - first->color.r) * local);
+    color.g = static_cast<uint8_t>(first->color.g +
+                                   (second->color.g - first->color.g) * local);
+    color.b = static_cast<uint8_t>(first->color.b +
+                                   (second->color.b - first->color.b) * local);
+    color.a = static_cast<uint8_t>(first->color.a +
+                                   (second->color.a - first->color.a) * local);
+    return color;
+  };
+  for (std::size_t i = 0; i < bands; ++i) {
+    const float start = static_cast<float>(i) / static_cast<float>(bands);
+    const float end = static_cast<float>(i + 1) / static_cast<float>(bands);
+    const float mid = (start + end) * 0.5F;
+    const float t = reversed ? 1.0F - mid : mid;
+    const float offset =
+        vertical ? (reversed ? rect.y + rect.height * (1.0F - end)
+                             : rect.y + rect.height * start)
+                 : (reversed ? rect.x + rect.width * (1.0F - end)
+                             : rect.x + rect.width * start);
+    const float size = vertical ? rect.height * (end - start)
+                                : rect.width * (end - start);
+    const Rect band{vertical ? rect.x : offset, vertical ? offset : rect.y,
+                    vertical ? rect.width : size,
+                    vertical ? size : rect.height};
+    context.fill_rect(band, sample(t));
+  }
+}
+
+void draw_border(RenderContext &context, const Rect &rect, float width,
+                 Color color) {
+  if (width <= 0.0F) {
+    return;
+  }
+  const Rect top{rect.x, rect.y, rect.width, width};
+  const Rect bottom{rect.x, rect.y + rect.height - width, rect.width, width};
+  const Rect left{rect.x, rect.y, width, rect.height};
+  const Rect right{rect.x + rect.width - width, rect.y, width, rect.height};
+  context.fill_rect(top, color);
+  context.fill_rect(bottom, color);
+  context.fill_rect(left, color);
+  context.fill_rect(right, color);
+}
+
 void render_box(RenderContext &context, const Element &element) {
   const ComputedStyle &style = element.visual_style();
   const float alpha = style.opacity;
   if (style.borderImage.has_value()) {
     context.draw_nine_slice(style.borderImage->source, element.bounds(),
                             *style.borderImage, alpha);
-  } else {
-    if (style.background.has_value()) {
-      Color bg = *style.background;
-      bg.a = static_cast<uint8_t>(bg.a * alpha);
-      context.fill_rect(element.bounds(), bg);
-    }
-    if (style.backgroundImage.has_value()) {
-      context.draw_image(*style.backgroundImage, element.bounds(), alpha);
-    }
+    return;
+  }
+  if (style.background.has_value()) {
+    Color bg = *style.background;
+    bg.a = static_cast<uint8_t>(bg.a * alpha);
+    context.fill_rect(element.bounds(), bg);
+  }
+  if (style.backgroundImage.has_value()) {
+    context.draw_image(*style.backgroundImage, element.bounds(), alpha);
+  }
+  if (style.backgroundGradient.has_value()) {
+    fill_gradient(context, element.bounds(), *style.backgroundGradient);
+  }
+  if (style.borderColor.has_value()) {
+    Color border = *style.borderColor;
+    border.a = static_cast<uint8_t>(border.a * alpha);
+    draw_border(context, element.bounds(), style.borderWidth, border);
   }
 }
 
@@ -146,6 +250,7 @@ public:
     float cursorY = rect.y + pad_top() + borderColor;
     const float innerWidth = std::max(0.0F, rect.width - hspace());
     const float innerHeight = std::max(0.0F, rect.height - vspace());
+    float extra_gap = 0.0F;
     if (style_.justify.has_value() && *style_.justify != Align::Start) {
       float stacked = 0.0F;
       std::size_t stacked_count = 0;
@@ -166,7 +271,14 @@ public:
         stacked += style_.gap * static_cast<float>(stacked_count - 1);
       }
       const float leftover = std::max(0.0F, innerHeight - stacked);
-      cursorY += *style_.justify == Align::Center ? leftover * 0.5F : leftover;
+      if (*style_.justify == Align::SpaceBetween) {
+        if (stacked_count > 1) {
+          extra_gap = leftover / static_cast<float>(stacked_count - 1);
+        }
+      } else {
+        cursorY +=
+            *style_.justify == Align::Center ? leftover * 0.5F : leftover;
+      }
     }
     const std::size_t count = visible_children(children_);
     std::size_t index = 0;
@@ -198,7 +310,7 @@ public:
         cursorY += *child->style().marginBottom;
       }
       if (index + 1 < count) {
-        cursorY += style_.gap;
+        cursorY += style_.gap + extra_gap;
       }
       ++index;
     }
@@ -280,10 +392,17 @@ public:
     if (count > 1)
       fixed += style_.gap * float(count - 1);
     const float remaining = std::max(0.0F, innerWidth - fixed);
+    float extra_gap = 0.0F;
     if (flexTotal <= 0.0F && style_.justify.has_value() &&
         *style_.justify != Align::Start) {
       const float leftover = std::max(0.0F, innerWidth - fixed);
-      cursorX += *style_.justify == Align::Center ? leftover * 0.5F : leftover;
+      if (*style_.justify == Align::SpaceBetween) {
+        if (count > 1) {
+          extra_gap = leftover / static_cast<float>(count - 1);
+        }
+      } else {
+        cursorX += *style_.justify == Align::Center ? leftover * 0.5F : leftover;
+      }
     }
     std::size_t index = 0;
     for (ElementPtr &child : children_) {
@@ -312,7 +431,7 @@ public:
         cursorX += *child->style().marginRight;
       }
       if (index + 1 < count) {
-        cursorX += style_.gap;
+        cursorX += style_.gap + extra_gap;
       }
       ++index;
     }
@@ -354,13 +473,25 @@ public:
     if (!visual.visible || !visual.backgroundImage.has_value()) {
       return;
     }
+    const ImageFit fit = parse_fit(attribute("fit"));
     const Rect target = fit_rect(context.image_size(*visual.backgroundImage),
-                                 bounds_, parse_fit(attribute("fit")));
+                                 bounds_, fit);
+    const bool clipped =
+        fit != ImageFit::Stretch &&
+        (target.x < bounds_.x || target.y < bounds_.y ||
+         target.x + target.width > bounds_.x + bounds_.width ||
+         target.y + target.height > bounds_.y + bounds_.height);
+    if (clipped) {
+      context.push_clip(bounds_);
+    }
     if (visual.background.has_value()) {
       context.draw_image_tinted(*visual.backgroundImage, target,
                                 *visual.background, visual.opacity);
     } else {
       context.draw_image(*visual.backgroundImage, target, visual.opacity);
+    }
+    if (clipped) {
+      context.pop_clip();
     }
   }
 };
@@ -371,6 +502,12 @@ public:
   void measure(const MeasureContext &context, const TextStyle &text) override {
     text_ = attribute("text");
     const TextStyle resolved = resolve_text_style(style_, text);
+    if (style_.uppercase) {
+      std::transform(text_.begin(), text_.end(), text_.begin(),
+                     [](unsigned char c) {
+                       return static_cast<char>(std::toupper(c));
+                     });
+    }
     ComputedStyle sizing = style_;
     sizing.fontFamily = resolved.fontFamily;
     sizing.fontSize = resolved.fontSize;
@@ -382,8 +519,39 @@ public:
     leading_ = std::max(0.0F, (line_height_ - natural.height) * 0.5F);
     text_align_ = resolved.textAlign;
     lines_.clear();
-    if (style_.width.has_value()) {
+    if (style_.width.has_value() && style_.nowrap) {
+      std::string line = text_;
+      if (style_.ellipsis) {
+        const std::string suffix = "...";
+        while (!line.empty() &&
+               context.text_size(line + suffix, sizing).width >
+                   *style_.width) {
+          line.pop_back();
+        }
+        if (line != text_) {
+          line += suffix;
+        }
+      }
+      lines_.emplace_back(line, context.text_size(line, sizing).width);
+      measured_.width = *style_.width;
+      measured_.height = line_height_;
+    } else if (style_.width.has_value()) {
       wrap_lines(text_, *style_.width, context, sizing);
+      if (style_.maxLines.has_value() && lines_.size() >
+              static_cast<std::size_t>(*style_.maxLines)) {
+        lines_.resize(static_cast<std::size_t>(*style_.maxLines));
+        if (style_.ellipsis && !lines_.empty()) {
+          auto &[last, last_width] = lines_.back();
+          const std::string suffix = "...";
+          while (!last.empty() &&
+                 context.text_size(last + suffix, sizing).width >
+                     *style_.width) {
+            last.pop_back();
+          }
+          last += suffix;
+          last_width = context.text_size(last, sizing).width;
+        }
+      }
       if (lines_.empty()) {
         lines_.emplace_back(std::string{}, 0.0F);
       }

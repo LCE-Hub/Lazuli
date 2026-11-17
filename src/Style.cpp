@@ -6,6 +6,7 @@
 #include <sstream>
 namespace lazuli {
 namespace {
+float parse_length(std::string_view text);
 std::string_view trim(std::string_view text) {
   while (!text.empty() && (text.front() == ' ' || text.front() == '\t' ||
                            text.front() == '\n' || text.front() == '\r')) {
@@ -98,6 +99,111 @@ bool color_name(std::string_view text, Color &out) {
     return true;
   }
   return false;
+}
+
+std::vector<std::string> split_top_level(const std::string &text) {
+  std::vector<std::string> parts;
+  std::size_t start = 0;
+  int depth = 0;
+  for (std::size_t i = 0; i <= text.size(); ++i) {
+    if (i == text.size() || (text[i] == ',' && depth == 0)) {
+      parts.emplace_back(trim(text.substr(start, i - start)));
+      start = i + 1;
+      continue;
+    }
+    if (text[i] == '(') {
+      ++depth;
+    } else if (text[i] == ')') {
+      --depth;
+    }
+  }
+  return parts;
+}
+
+bool parse_gradient(std::string_view text, Gradient &out) {
+  if (text.rfind("linear-gradient(", 0) != 0) {
+    return false;
+  }
+  const std::size_t open = text.find('(');
+  const std::size_t close = text.rfind(')');
+  if (open == std::string_view::npos || close == std::string_view::npos ||
+      close <= open) {
+    return false;
+  }
+  const std::vector<std::string> tokens =
+      split_top_level(std::string(text.substr(open + 1, close - open - 1)));
+  if (tokens.empty()) {
+    return false;
+  }
+  std::size_t index = 0;
+  if (tokens.front().rfind("to ", 0) == 0) {
+    const std::string direction(trim(tokens.front().substr(3)));
+    if (direction == "top") {
+      out.direction = Gradient::Direction::ToTop;
+    } else if (direction == "bottom") {
+      out.direction = Gradient::Direction::ToBottom;
+    } else if (direction == "right") {
+      out.direction = Gradient::Direction::ToRight;
+    } else if (direction == "left") {
+      out.direction = Gradient::Direction::ToLeft;
+    } else {
+      out.direction = Gradient::Direction::ToBottom;
+    }
+    index = 1;
+  }
+  std::vector<Gradient::Stop> stops;
+  for (; index < tokens.size(); ++index) {
+    std::string token = tokens[index];
+    float offset = -1.0F;
+    const std::size_t space = token.rfind(' ');
+    if (space != std::string::npos && token.ends_with('%')) {
+      const std::string percent(trim(token.substr(space + 1)));
+      if (percent.ends_with('%')) {
+        offset = parse_length(percent) / 100.0F;
+        token = std::string(trim(token.substr(0, space)));
+      }
+    }
+    Gradient::Stop stop;
+    if (!parse_color(token, stop.color)) {
+      return false;
+    }
+    stop.offset = offset;
+    stops.push_back(stop);
+  }
+  if (stops.empty()) {
+    return false;
+  }
+  if (stops.size() == 1) {
+    stops[0].offset = stops[0].offset < 0.0F ? 0.0F : stops[0].offset;
+  } else {
+    if (stops.front().offset < 0.0F) {
+      stops.front().offset = 0.0F;
+    }
+    if (stops.back().offset < 0.0F) {
+      stops.back().offset = 1.0F;
+    }
+    std::size_t i = 0;
+    while (i < stops.size()) {
+      if (stops[i].offset >= 0.0F) {
+        ++i;
+        continue;
+      }
+      std::size_t j = i;
+      while (j < stops.size() && stops[j].offset < 0.0F) {
+        ++j;
+      }
+      const float previous = i == 0 ? 0.0F : stops[i - 1].offset;
+      const float end = j < stops.size() ? stops[j].offset : 1.0F;
+      const float span = static_cast<float>(j - i + 1);
+      for (std::size_t k = i; k < j; ++k) {
+        stops[k].offset = previous + (end - previous) *
+                                         static_cast<float>(k - i + 1) / span;
+      }
+      i = j;
+    }
+  }
+  out.stops = std::move(stops);
+  return true;
 }
 
 float parse_length(std::string_view text) {
@@ -356,12 +462,30 @@ void apply_declaration(ComputedStyle &style, std::string_view name,
     style.flex = parse_length(value);
   } else if (name == "background" || name == "background-color" ||
              name == "color-bg") {
-    Color color;
-    if (parse_color(value, color)) {
-      style.background = color;
+    Gradient gradient;
+    if (parse_gradient(value, gradient)) {
+      style.backgroundGradient = std::move(gradient);
+    } else {
+      Color color;
+      if (parse_color(value, color)) {
+        style.background = color;
+      }
     }
   } else if (name == "background-image") {
-    style.backgroundImage = std::string(trim(value));
+    style.backgroundImage = strip_url(value);
+  } else if (name == "border-color") {
+    Color color;
+    if (parse_color(value, color)) {
+      style.borderColor = color;
+    }
+  } else if (name == "max-lines") {
+    style.maxLines = static_cast<int>(parse_length(value));
+  } else if (name == "white-space") {
+    style.nowrap = trim(value) == "nowrap";
+  } else if (name == "text-overflow") {
+    style.ellipsis = trim(value) == "ellipsis";
+  } else if (name == "text-transform") {
+    style.uppercase = trim(value) == "uppercase";
   } else if (name == "color") {
     Color color;
     if (parse_color(value, color)) {
@@ -405,9 +529,14 @@ void apply_declaration(ComputedStyle &style, std::string_view name,
   } else if (name == "align") {
     parse_align(value, style.align);
   } else if (name == "justify") {
-    Align justify = Align::Start;
-    if (parse_align(value, justify)) {
-      style.justify = justify == Align::Stretch ? Align::Start : justify;
+    const std::string text(trim(value));
+    if (text == "space-between" || text == "between" || text == "space-around") {
+      style.justify = Align::SpaceBetween;
+    } else {
+      Align justify = Align::Start;
+      if (parse_align(value, justify)) {
+        style.justify = justify == Align::Stretch ? Align::Start : justify;
+      }
     }
   } else if (name == "visible" || name == "display") {
     style.visible = value != "none";
@@ -417,6 +546,10 @@ void apply_declaration(ComputedStyle &style, std::string_view name,
     style.left = parse_length(value);
   } else if (name == "top") {
     style.top = parse_length(value);
+  } else if (name == "right") {
+    style.right = parse_length(value);
+  } else if (name == "bottom") { //neo: me
+    style.bottom = parse_length(value);
   }
 }
 
@@ -615,8 +748,26 @@ ComputedStyle ComputedStyle::merge(const ComputedStyle &base,
   if (overlay.backgroundImage.has_value()) {
     result.backgroundImage = overlay.backgroundImage;
   }
+  if (overlay.backgroundGradient.has_value()) {
+    result.backgroundGradient = overlay.backgroundGradient;
+  }
   if (overlay.borderImage.has_value()) {
     result.borderImage = overlay.borderImage;
+  }
+  if (overlay.borderColor.has_value()) {
+    result.borderColor = overlay.borderColor;
+  }
+  if (overlay.maxLines.has_value()) {
+    result.maxLines = overlay.maxLines;
+  }
+  if (overlay.nowrap) {
+    result.nowrap = true;
+  }
+  if (overlay.ellipsis) {
+    result.ellipsis = true;
+  }
+  if (overlay.uppercase) {
+    result.uppercase = true;
   }
   if (overlay.textShadow.enabled) {
     result.textShadow = overlay.textShadow;
@@ -661,6 +812,12 @@ ComputedStyle ComputedStyle::merge(const ComputedStyle &base,
   }
   if (overlay.top != 0.0F) {
     result.top = overlay.top;
+  }
+  if (overlay.right.has_value()) {
+    result.right = overlay.right;
+  }
+  if (overlay.bottom.has_value()) {
+    result.bottom = overlay.bottom;
   }
   if (overlay.visible) {
     result.visible = true;

@@ -34,6 +34,7 @@ enum class Align {
   Center,
   End,
   Stretch,
+  SpaceBetween,
 };
 
 enum class ImageFit {

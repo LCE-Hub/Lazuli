@@ -25,6 +25,16 @@ struct TextShadow {
   float offsetY = 1.0F;
 };
 
+struct Gradient {
+  enum class Direction { ToBottom, ToTop, ToRight, ToLeft };
+  struct Stop {
+    float offset = 0.0F;
+    Color color = kBlack;
+  };
+  Direction direction = Direction::ToBottom;
+  std::vector<Stop> stops;
+};
+
 struct TextStyle {
   std::string fontFamily;
   int fontSize = 16;
@@ -58,6 +68,12 @@ struct ComputedStyle {
   std::optional<Color> background;
   std::optional<std::string> backgroundImage;
   std::optional<BorderImage> borderImage;
+  std::optional<Gradient> backgroundGradient;
+  std::optional<Color> borderColor;
+  std::optional<int> maxLines;
+  bool nowrap = false;
+  bool ellipsis = false;
+  bool uppercase = false;
   std::string fontFamily;
   int fontSize = 16;
   Color color = kWhite;
@@ -76,6 +92,8 @@ struct ComputedStyle {
   bool absolute = false;
   float left = 0.0F;
   float top = 0.0F;
+  std::optional<float> right;
+  std::optional<float> bottom; //neo: im an optional float :3
   static ComputedStyle merge(const ComputedStyle &base,
                              const ComputedStyle &overlay);
 };
