@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 namespace lazuli {
 class Element;
@@ -36,6 +37,8 @@ public:
   virtual Element *hit_test(const Vec2 &point);
   virtual Element *scroll_hit_test(const Vec2 &point);
   virtual bool scroll_to(const Rect &target);
+  virtual std::pair<float, float> scroll_state() const { return {0.0F, 0.0F}; }
+  virtual void set_scroll_state(float, float) {}
   virtual bool tick(uint64_t now_ticks);
   virtual void seed_clock(uint64_t ticks);
   void reveal();

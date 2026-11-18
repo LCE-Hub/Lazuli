@@ -145,6 +145,7 @@ private:
   std::filesystem::path i18n_root_;
   std::map<std::string, ScreenPtr> screens_;
   std::string current_view_;
+  std::string built_view_;
   std::vector<std::string> back_stack_;
   ElementPtr tree_;
   ElementPtr overlay_tree_;

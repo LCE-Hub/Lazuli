@@ -48,24 +48,22 @@ bool outside_view(const Rect &bounds, const Rect &view) {
          bounds.y >= view.y + view.height - 0.5F;
 }
 
-bool spans_view(const Rect &bounds, const Rect &view) {
-  return bounds.y <= view.y + 0.5F &&
-         bounds.y + bounds.height >= view.y + view.height - 0.5F;
-}
-
 void render_visible_children(const Element *parent, RenderContext &context,
-                             const TextStyle &parent_text, const Rect &view) {
+                             const TextStyle &parent_text, const Rect &view,
+                             bool render_absolute = true) {
   const TextStyle child_text =
       resolve_text_style(parent->visual_style(), parent_text);
   for (const ElementPtr &child : parent->children()) {
     if (!child->style().visible) {
       continue;
     }
+    const Rect &bounds = child->bounds();
     if (child->style().absolute) {
-      child->render(context, child_text);
+      if (render_absolute && fully_inside(bounds, view)) {
+        child->render(context, child_text);
+      }
       continue;
     }
-    const Rect &bounds = child->bounds();
     if (outside_view(bounds, view)) {
       continue;
     }
@@ -73,9 +71,7 @@ void render_visible_children(const Element *parent, RenderContext &context,
       child->render(context, child_text);
       continue;
     }
-    if (spans_view(bounds, view)) {
-      render_visible_children(child.get(), context, child_text, view);
-    }
+    render_visible_children(child.get(), context, child_text, view, false);
   }
 }
 
@@ -851,6 +847,16 @@ public:
     return 0.0F;
   }
 
+  std::pair<float, float> scroll_state() const override {
+    return {scroll_offset_, raw_offset_};
+  }
+
+  void set_scroll_state(float offset, float raw) override {
+    scroll_offset_ = offset;
+    raw_offset_ = raw;
+    arrange(bounds_);
+  }
+
   bool hides_partial_items() const override { return hide_partial_; }
   Rect scroll_viewport() const override {
     const float in_l = pad_left() + style_.borderWidth;
@@ -1262,7 +1268,7 @@ bool Element::hidden_by_scroll() const {
       if (outside_view(bounds, view)) {
         return true;
       }
-      if (!fully_inside(bounds, view) && !spans_view(bounds, view)) {
+      if (!fully_inside(bounds, view) && current == this) {
         return true;
       }
     }

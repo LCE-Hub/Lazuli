@@ -4,8 +4,36 @@
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cstdlib>
+#include <utility>
 namespace lazuli {
 namespace {
+using ScrollStates = std::vector<std::pair<std::string, std::pair<float, float>>>;
+void capture_scroll(const Element *element, const std::string &path,
+                    ScrollStates &states) {
+  const auto state = element->scroll_state();
+  if (state.first != 0.0F || state.second != 0.0F) {
+    states.emplace_back(path, state);
+  }
+  const auto &children = element->children();
+  for (std::size_t i = 0; i < children.size(); ++i) {
+    capture_scroll(children[i].get(), path + "/" + std::to_string(i), states);
+  }
+}
+
+void restore_scroll(Element *element, const std::string &path,
+                    const ScrollStates &states) {
+  for (const auto &entry : states) {
+    if (entry.first == path) {
+      element->set_scroll_state(entry.second.first, entry.second.second);
+      break;
+    }
+  }
+  const auto &children = element->children();
+  for (std::size_t i = 0; i < children.size(); ++i) {
+    restore_scroll(children[i].get(), path + "/" + std::to_string(i), states);
+  }
+}
+
 Element *find_blocking_element(Element *element, const Vec2 &point) {
   if (element == nullptr || !element->style().visible ||
       !element->bounds().contains(point)) {
@@ -334,6 +362,11 @@ void UiSystem::play_sound_for(const std::string &handler) {
 void UiSystem::rebuild() {
   hover_chain_.clear();
   active_text_ = nullptr;
+  ScrollStates scroll_states;
+  if (tree_ != nullptr && built_view_ == current_view_) {
+    capture_scroll(tree_.get(), "", scroll_states);
+  }
+  built_view_ = current_view_;
   const auto screen = screens_.find(current_view_);
   if (screen == screens_.end()) {
     return;
@@ -354,6 +387,9 @@ void UiSystem::rebuild() {
   tree_->measure(renderer_);
   tree_->arrange(Rect{0.0F, 0.0F, static_cast<float>(logical_width_),
                       static_cast<float>(logical_height_)});
+  if (!scroll_states.empty()) {
+    restore_scroll(tree_.get(), "", scroll_states);
+  }
   tree_->seed_clock(view_entered_ticks_);
   focus_order_.clear();
   Element *scope_root = tree_.get();
@@ -396,6 +432,10 @@ void UiSystem::rebuild() {
 
 void UiSystem::rebuild_overlay() {
   overlay_dirty_ = false;
+  ScrollStates scroll_states;
+  if (overlay_tree_ != nullptr) {
+    capture_scroll(overlay_tree_.get(), "", scroll_states);
+  }
   overlay_tree_ = nullptr;
   const auto overlay = screens_.find("overlay");
   if (overlay == screens_.end()) {
@@ -418,6 +458,9 @@ void UiSystem::rebuild_overlay() {
   tree->measure(renderer_);
   tree->arrange(Rect{0.0F, 0.0F, static_cast<float>(logical_width_),
                      static_cast<float>(logical_height_)});
+  if (!scroll_states.empty()) {
+    restore_scroll(tree.get(), "", scroll_states);
+  }
   overlay_tree_ = std::move(tree);
 }
 
