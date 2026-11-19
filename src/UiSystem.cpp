@@ -672,7 +672,9 @@ bool UiSystem::hover_path(Element *e, const Vec2 &p,
 
 void UiSystem::render() {
   update_notifications();
-  if (dirty_) {
+  TextInputElement *typing = active_text_input();
+  const bool editing_text = typing != nullptr && typing->editing();
+  if (dirty_ && !editing_text) {
     rebuild();
   } else if (overlay_dirty_) {
     rebuild_overlay();
